@@ -85,7 +85,8 @@ test:dependency-check:
     - pip install -r invoice-app/requirements.txt --quiet
   script:
     - echo "Checking for dependency compatibility issues..."
-    - python -c "from billing.tax_engine import TaxConfig" || (
+    - |
+      python -c "from billing.tax_engine import TaxConfig" || (
         echo "ERROR: billing.tax_engine failed to import."
         echo "Likely cause: pydantic version mismatch (requires >=2.0, got 1.9.0)."
         echo "See requirements.txt and billing/tax_engine.py for details."
