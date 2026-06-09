@@ -1,0 +1,56 @@
+[
+  {
+    "id": "INC-101",
+    "title": "CRITICAL: Historical Revenue mismatch in Q2 currency reports",
+    "description": "Historical invoice conversions are applying current live exchange rates instead of archived rates stored in the database. Logs show billing service was called. Suspicious commit cf78a9c2 pushed recently. Tests failing.",
+    "module": "currency",
+    "error_type": "logic regression",
+    "priority_signals": ["currency", "conversion", "reports", "exchange rate"],
+    "expected_root_cause": "Pre-2024 currency conversion uses live exchange rates instead of historical archive rates.",
+    "validation": "currency_validator",
+    "target_file": "currency/converter.py",
+    "test_target": "tests/test_currency.py::test_get_rate_pre2024_uses_historical_rate",
+    "supporting_files": ["currency/historical.py", "reports/report_service.py", "reports/__init__.py"],
+    "trigger": {
+      "type": "local_script",
+      "script": "trigger_bug.py",
+      "args": ["INC-101"]
+    }
+  },
+  {
+    "id": "INC-102",
+    "title": "CRITICAL: Null pointer auth profile crash during token validation",
+    "description": "Rare crash in token validation loop: AttributeError: 'NoneType' object has no attribute 'get' at auth/service.py:42. Affecting guest role users.",
+    "module": "auth",
+    "error_type": "null pointer",
+    "priority_signals": ["auth", "token", "session", "deleted user"],
+    "expected_root_cause": "Session validation dereferences a missing user profile instead of rejecting the deleted user token cleanly.",
+    "validation": "auth_validator",
+    "target_file": "auth/session_service.py",
+    "test_target": "tests/test_auth.py::test_validate_token_deleted_user_raises_attribute_error",
+    "supporting_files": ["auth/user_service.py", "auth/__init__.py"],
+    "trigger": {
+      "type": "local_script",
+      "script": "trigger_bug.py",
+      "args": ["INC-102"]
+    }
+  },
+  {
+    "id": "INC-103",
+    "title": "CRITICAL: Dependency mismatch on JSON serialization",
+    "description": "ImportError: cannot import name 'SafeJSONDecoder' from 'serialization.utils' causing container start failure. Incompatible dependency versions in requirements.txt.",
+    "module": "billing",
+    "error_type": "dependency mismatch",
+    "priority_signals": ["billing", "dependency", "pydantic", "model_validator"],
+    "expected_root_cause": "The billing tax engine imports APIs that require a newer dependency version than the target application pins.",
+    "validation": "dependency_validator",
+    "target_file": "requirements.txt",
+    "test_target": "tests/test_billing.py::test_tax_config_model_valid",
+    "supporting_files": ["billing/tax_engine.py", "billing/invoice_service.py", "billing/__init__.py"],
+    "trigger": {
+      "type": "local_script",
+      "script": "trigger_bug.py",
+      "args": ["INC-103"]
+    }
+  }
+]

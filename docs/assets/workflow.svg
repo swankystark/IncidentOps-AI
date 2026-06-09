@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 720" fill="none">
+  <rect width="900" height="720" fill="#070b13"/>
+  <text x="450" y="42" text-anchor="middle" fill="#a5b4fc" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">IncidentOps AI  Incident Workflow</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#6366f1"/>
+    </marker>
+  </defs>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">
+    <rect x="300" y="70" width="300" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="98" text-anchor="middle" fill="#e5e7eb">1. Select Incident Template</text>
+    <line x1="450" y1="114" x2="450" y2="140" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="300" y="140" width="300" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="168" text-anchor="middle" fill="#e5e7eb">2. Configure Target Repository</text>
+    <line x1="450" y1="184" x2="450" y2="210" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="275" y="210" width="350" height="44" rx="10" fill="#0f1626" stroke="#10b981" stroke-width="2"/>
+    <text x="450" y="238" text-anchor="middle" fill="#6ee7b7">3. Validate Repository (PASS / FAIL)</text>
+    <line x1="450" y1="254" x2="450" y2="280" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="300" y="280" width="300" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="308" text-anchor="middle" fill="#e5e7eb">4. Trigger Investigation</text>
+    <line x1="450" y1="324" x2="450" y2="350" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="120" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="220" y="380" text-anchor="middle" fill="#c7d2fe">GitLab Service</text>
+    <rect x="350" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="450" y="380" text-anchor="middle" fill="#c7d2fe">CI/CD Service</text>
+    <rect x="580" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="680" y="380" text-anchor="middle" fill="#c7d2fe">Log Service</text>
+    <text x="450" y="335" text-anchor="middle" fill="#9ca3af" font-size="12">5. Parallel Evidence Retrieval</text>
+    <line x1="450" y1="400" x2="450" y2="430" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="275" y="430" width="350" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="458" text-anchor="middle" fill="#e5e7eb">6. Evidence Fusion (Root Cause + Confidence)</text>
+    <line x1="450" y1="474" x2="450" y2="500" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="275" y="500" width="350" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="528" text-anchor="middle" fill="#e5e7eb">7. Patch Generation + Validation</text>
+    <line x1="450" y1="544" x2="450" y2="570" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="275" y="570" width="350" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
+    <text x="450" y="598" text-anchor="middle" fill="#e5e7eb">8. MR Creation + RCA Report</text>
+    <line x1="450" y1="614" x2="450" y2="640" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="275" y="640" width="350" height="44" rx="10" fill="#0f1626" stroke="#10b981" stroke-width="2"/>
+    <text x="450" y="668" text-anchor="middle" fill="#6ee7b7">9. Human Review Gate (Approve &amp; Merge)</text>
+  </g>
+</svg>

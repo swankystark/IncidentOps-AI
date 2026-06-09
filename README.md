@@ -1,93 +1,254 @@
-# incidentops-demo-app
+# IncidentOps AI
 
+Autonomous Tier-3 incident response platform that investigates production failures, correlates evidence from GitLab, CI/CD, and runtime logs, generates validated patches, and opens remediation merge requests with a full root cause analysis.
 
+**Repository:** [github.com/swankystark/IncidentOps-AI](https://github.com/swankystark/IncidentOps-AI)  
+**Benchmark target app (GitLab):** [swankystark20-group/incidentops-demo-app](https://gitlab.com/swankystark20-group/incidentops-demo-app)
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Problem Statement
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+On-call engineers spend critical minutes manually correlating logs, pipeline failures, commit history, and source code before they can even propose a fix. IncidentOps AI automates that investigation loop: it scopes the incident, collects evidence from GitLab, CI/CD, and runtime logs, fuses signals into a root-cause hypothesis, drafts a minimal patch, validates it, and opens a GitLab merge request with an RCA report — all while keeping a human in the loop at the review gate.
 
-## Add your files
+---
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Architecture
+
+![Architecture](docs/assets/architecture.png)
+
+IncidentOps AI is a **Next.js dashboard** connected to a **FastAPI + LangGraph backend** with **SQLite** persistence.
+
+| Layer | Technology | Role |
+|-------|------------|------|
+| Frontend | Next.js, React, Tailwind | Incident dashboard, live SSE streaming, RCA panel |
+| API | FastAPI | REST endpoints, config, incident lifecycle |
+| Orchestration | LangGraph | Multi-agent workflow with dedicated evidence retrieval services |
+| Reasoning | Google Gemini | Structured evidence fusion, patch generation, RCA authoring |
+| Integrations | GitLab API | Commits, files, pipelines, branches, merge requests |
+| Storage | SQLite | Incidents, agent logs, platform metrics |
+
+### Agent Taxonomy
+
+- **Planner Agent** — scopes module, error type, and retrieval signals
+- **GitLab / CI/CD / Log Services** — evidence collection from commits, pipelines, and logs
+- **Evidence Fusion Agent** — correlates signals into root cause + confidence
+- **Patch Generation Agent** — produces a minimal unified diff
+- **Validation Service** — runs template-selected pytest strategy
+- **MR & RCA Agent** — commits patch, opens MR, writes RCA markdown
+
+See [docs/architecture.md](docs/architecture.md) for the full system diagram.
+
+---
+
+## Workflow
+
+![Workflow](docs/assets/workflow.png)
+
+1. Select an incident template from `incidents.json`
+2. Configure target GitLab repository, branch, app path, and log path
+3. **Validate Repository** — verify project, branch, and GitLab access before running
+4. Trigger investigation — LangGraph executes the agent pipeline
+5. Watch live agent logs via Server-Sent Events
+6. Review RCA panel: root cause, evidence, affected files, confidence
+7. Inspect generated patch diff
+8. Approve merge request at the human review gate
+
+See [docs/workflow.md](docs/workflow.md) and [docs/demo_walkthrough.md](docs/demo_walkthrough.md).
+
+---
+
+## Repository-Agnostic Design
+
+IncidentOps AI does **not** hardcode a target repository. Each incident run stores:
+
+- `target_repo` — GitLab `group/project` path
+- `target_branch` — branch to investigate
+- `target_app_path` — subdirectory for application source (empty = repo root)
+- `application_log_path` — local or configured log file path
+
+The UI starts with **empty defaults**. Click **Apply Demo Preset** to load the benchmark configuration used in evaluation:
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/swankystark20-group/incidentops-demo-app.git
-git branch -M main
-git push -uf origin main
+swankystark20-group/incidentops-demo-app / main / invoice-app
 ```
 
-## Integrate with your tools
+The benchmark application itself lives in a separate GitLab repository and is not included in this GitHub repo.
 
-* [Set up project integrations](https://gitlab.com/swankystark20-group/incidentops-demo-app/-/settings/integrations)
+---
 
-## Collaborate with your team
+## GitLab Integration
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+| Capability | Description |
+|------------|-------------|
+| Project lookup | Validates repository exists and is accessible |
+| Branch access | Confirms target branch is reachable |
+| Commit history | Retrieves suspicious commits for correlation |
+| Source files | Fetches target and supporting files from the repo |
+| Pipeline evidence | Selects relevant CI/CD pipeline and job traces |
+| Remediation | Creates branch, commits patch, opens merge request |
 
-## Test and Deploy
+Requires a GitLab Personal Access Token with `api` scope.
 
-Use the built-in continuous integration in GitLab.
+---
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## Configuration
 
-***
+### Backend (`.env` at repository root)
 
-# Editing this README
+Copy `.env.example` to `.env`:
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+cp .env.example .env
+```
 
-## Suggestions for a good README
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GEMINI_API_KEY` | Yes | Google Gemini API key |
+| `GITLAB_PAT` | Yes | GitLab personal access token |
+| `GITLAB_TARGET_REPO` | No | Default target repo (overridable in UI) |
+| `GITLAB_TARGET_BRANCH` | No | Default branch (default: `main`) |
+| `TARGET_APP_PATH` | No | App subdirectory in target repo |
+| `APPLICATION_LOG_PATH` | No | Runtime log path for log agent |
+| `DEMO_MODE` | No | Enable local pytest/log fallbacks (default: `true`) |
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+### Frontend (`frontend/.env.local`)
 
-## Name
-Choose a self-explaining name for your project.
+```bash
+cp frontend/.env.example frontend/.env.local
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_API_BASE_URL` | Yes | Backend URL, e.g. `http://localhost:8000` |
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+---
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Running Locally
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### Prerequisites
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+- Python 3.11+
+- Node.js 18+
+- GitLab PAT with API access
+- Gemini API key
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### 1. Backend
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+cd backend
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### 2. Frontend
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```bash
+cd frontend
+cp .env.example .env.local
+# Edit .env.local: NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+npm install
+npm run dev
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Open **http://localhost:3000**
+
+### 3. Quick demo
+
+1. Paste your Gemini API key in the header (or set `GEMINI_API_KEY` in `.env`)
+2. Click **Apply Demo Preset** for the benchmark GitLab repository
+3. Click **Validate Repository** — expect `PASS`
+4. Trigger **INC-101**, **INC-102**, or **INC-103**
+5. Watch the orchestration map, RCA panel, and patch diff populate in real time
+
+### Docker (optional)
+
+```bash
+cp .env.example .env
+# Fill in GEMINI_API_KEY and GITLAB_PAT
+docker compose up --build
+```
+
+### CLI scenario runner
+
+```bash
+python run_scenario.py INC-101 --target-repo group/project --target-branch main
+```
+
+---
+
+## Screenshots
+
+> Add dashboard screenshots to `docs/assets/screenshots/` after your first local run.
+
+Recommended captures:
+
+1. Incident scenario panel with demo preset and validation PASS
+2. Multi-agent orchestration map during investigation
+3. RCA panel with confidence score and evidence sources
+4. Patch diff and merge request review gate
+
+---
+
+## Benchmark Results
+
+Evaluation harness: `tools/benchmark/run_benchmark.py`
+
+| Scenario | Success Rate | Mean Confidence | Mean Duration |
+|----------|-------------|-----------------|---------------|
+| INC-101 (currency regression) | 100% | 98% | ~50s |
+| INC-102 (auth null pointer) | 66.7% | 97% | ~42s |
+| **Overall (6 runs)** | **83.3%** | **97.5%** | **~46s** |
+
+Full report: [tools/benchmark/benchmark_report.md](tools/benchmark/benchmark_report.md)
+
+---
+
+## Limitations
+
+- Validation strategies are pytest-based; non-Python repos need additional strategies
+- Local log triggering requires a checkout of the target application
+- Patch generation depends on LLM structured output matching source exactly
+- Human merge gate simulates approval; production would wire GitLab MR merge API
+- Metrics are portfolio-grade, not SLO-grade observability
+
+See [docs/limitations.md](docs/limitations.md).
+
+---
+
+## Future Work
+
+- Structured RCA fields on the incident API (not only markdown)
+- Log provider integrations (Datadog, Splunk, CloudWatch)
+- Durable job queue (Celery/ARQ) instead of FastAPI background tasks
+- Additional validation strategies (npm, Maven, Go test)
+- Real GitLab MR merge on human approval
+- Postgres migration with proper schema migrations
+
+---
+
+## Project Structure
+
+```
+IncidentOps-AI/
+├── backend/           # FastAPI + LangGraph agents
+├── frontend/          # Next.js dashboard
+├── docs/              # Architecture, workflow, portfolio assets
+├── tests/             # Platform unit tests
+├── tools/benchmark/   # Evaluation harness and reports
+├── incidents.json     # Incident scenario registry
+├── run_scenario.py    # CLI scenario runner
+└── docker-compose.yml
+```
+
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT (add license file before public release if desired).
