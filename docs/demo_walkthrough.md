@@ -36,7 +36,7 @@ This walkthrough demonstrates the full incident-response lifecycle using the ben
 
 ## Step 2: Evidence Retrieval
 
-Watch the **Multi-Agent Orchestration Map** as three services run in parallel:
+Watch the **Multi-Agent Orchestration Map** as the workflow advances through the retrieval path:
 
 | Service | Evidence Collected |
 |---------|-------------------|
@@ -48,8 +48,9 @@ The **Investigation Terminal** streams agent logs in real time via SSE.
 
 **What to look for:**
 - GitLab Service pins a commit SHA for correlation
-- CI/CD Service selects the relevant failed pipeline
+- CI/CD Service follows the pinned GitLab commit to select the relevant pipeline
 - Log Service extracts stack traces and error keywords
+- In the final graph, CI/CD runs after GitLab evidence is available, and the fusion step waits for log + CI/CD evidence.
 
 ---
 
@@ -107,6 +108,8 @@ The **MR & RCA Agent**:
 **Review gate:** Once status reaches `RESOLVING`, the **Approve & Merge** button unlocks.
 
 Click **View MR on GitLab** to inspect the remediation in the target repository.
+
+If the run is interrupted by quota or rate-limit errors, the backend saves a checkpoint and the incident can be resumed from the API.
 
 ---
 

@@ -1,9 +1,21 @@
 import type { Metadata } from "next";
+import { Geist_Mono, Geist } from "next/font/google";
 import "./globals.css";
 
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+});
+
 export const metadata: Metadata = {
-  title: "IncidentOps AI | Autonomous Incident Investigation & Remediation",
-  description: "Autonomous Tier-3 Incident response and remediation agent that investigates logs, commits, pipelines, and patches production bugs.",
+  title: "IncidentOps AI",
+  description:
+    "Engineering incident dashboard for observing investigations, evidence, patch diffs, validation, and merge requests.",
 };
 
 export default function RootLayout({
@@ -12,8 +24,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`h-full antialiased ${geistSans.variable} ${geistMono.variable}`}>
+      <body className="min-h-full flex flex-col bg-[var(--surface-base)] text-[var(--text-primary)]">
+        {children}
+      </body>
     </html>
   );
 }

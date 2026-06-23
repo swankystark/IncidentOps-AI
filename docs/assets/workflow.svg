@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 720" fill="none">
   <rect width="900" height="720" fill="#070b13"/>
-  <text x="450" y="42" text-anchor="middle" fill="#a5b4fc" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">IncidentOps AI  Incident Workflow</text>
+  <text x="450" y="42" text-anchor="middle" fill="#a5b4fc" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">IncidentOps AI - Incident Workflow</text>
 
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
@@ -25,14 +25,18 @@
     <text x="450" y="308" text-anchor="middle" fill="#e5e7eb">4. Trigger Investigation</text>
     <line x1="450" y1="324" x2="450" y2="350" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
 
-    <rect x="120" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
-    <text x="220" y="380" text-anchor="middle" fill="#c7d2fe">GitLab Service</text>
-    <rect x="350" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
-    <text x="450" y="380" text-anchor="middle" fill="#c7d2fe">CI/CD Service</text>
-    <rect x="580" y="350" width="200" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
-    <text x="680" y="380" text-anchor="middle" fill="#c7d2fe">Log Service</text>
+    <rect x="80" y="350" width="190" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="175" y="380" text-anchor="middle" fill="#c7d2fe">Log Service</text>
+    <rect x="355" y="350" width="190" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="450" y="380" text-anchor="middle" fill="#c7d2fe">GitLab Service</text>
+    <rect x="630" y="350" width="190" height="50" rx="10" fill="#0f1626" stroke="#818cf8" stroke-width="2"/>
+    <text x="725" y="380" text-anchor="middle" fill="#c7d2fe">CI/CD Service</text>
     <text x="450" y="335" text-anchor="middle" fill="#9ca3af" font-size="12">5. Parallel Evidence Retrieval</text>
-    <line x1="450" y1="400" x2="450" y2="430" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M450 324 L175 324 L175 350" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="450" y1="324" x2="450" y2="350" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="545" y1="375" x2="630" y2="375" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M175 400 L175 452 L275 452" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M725 400 L725 452 L625 452" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
 
     <rect x="275" y="430" width="350" height="44" rx="10" fill="#0f1626" stroke="#6366f1" stroke-width="2"/>
     <text x="450" y="458" text-anchor="middle" fill="#e5e7eb">6. Evidence Fusion (Root Cause + Confidence)</text>

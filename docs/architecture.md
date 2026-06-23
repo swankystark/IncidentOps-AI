@@ -1,6 +1,36 @@
 # IncidentOps AI Architecture
 
-IncidentOps AI is a repository-agnostic incident-response platform. It investigates a configured GitLab target repository, correlates runtime logs, CI/CD evidence, commit history, and source files, then proposes a patch and opens a remediation merge request.
+IncidentOps AI is a repository-agnostic incident-response system. It starts from a planner, gathers GitLab and log evidence, correlates CI/CD output, then produces a validated patch and an MR with RCA.
+
+## What The Code Actually Does
+
+The current LangGraph implementation is not fully parallel at the top. The planner fans out to log retrieval and GitLab attribution, and GitLab then feeds CI/CD before evidence fusion.
+
+```mermaid
+flowchart TD
+  Planner["Incident Analysis / Planner"]
+  Logs["Log Service"]
+  GitLab["GitLab Service"]
+  CICD["CI/CD Service"]
+  Fusion["Evidence Fusion"]
+  RepoContext["Repository Context"]
+  PatchTarget["Patch Targeting"]
+  PatchGen["Patch Generation"]
+  Validation["Validation Service"]
+  MR["MR + RCA"]
+
+  Planner --> Logs
+  Planner --> GitLab
+  GitLab --> CICD
+  Logs --> Fusion
+  CICD --> Fusion
+  Fusion --> RepoContext
+  RepoContext --> PatchTarget
+  PatchTarget --> PatchGen
+  PatchGen --> Validation
+  Validation --> MR
+  Validation -.->|1 retry on failure| PatchGen
+```
 
 ## System Boundary
 
@@ -8,58 +38,70 @@ IncidentOps AI is a repository-agnostic incident-response platform. It investiga
 flowchart LR
   UI["Next.js Dashboard"] --> API["FastAPI Backend"]
   API --> Registry["incidents.json"]
-  API --> DB["SQLite Evidence + Metrics"]
-  API --> Graph["LangGraph Workflow"]
-  Graph --> Planner["Planner Agent"]
-  Graph --> Logs["Log Service"]
+  API --> DB["SQLite incidents, logs, metrics"]
+  API --> Graph["LangGraph workflow"]
+  Graph --> Planner["Planner"]
+  Graph --> Log["Log Service"]
   Graph --> GitLab["GitLab Service"]
   Graph --> CICD["CI/CD Service"]
-  Graph --> Fusion["Evidence Fusion Agent"]
-  Graph --> Patch["Patch Generation Agent"]
-  Graph --> Validation["Validation Strategy"]
-  Graph --> MR["MR & RCA Agent"]
-  GitLab --> Target["Configured GitLab Target Repo"]
-  Logs --> RuntimeLog["Configured Application Log"]
-  Validation --> Tests["Configured Test Target"]
+  Graph --> Fusion["Evidence Fusion"]
+  Graph --> RepoContext["Repository Context"]
+  Graph --> PatchTarget["Patch Targeting"]
+  Graph --> PatchGen["Patch Generation"]
+  Graph --> Validation["Validation Service"]
+  Graph --> MR["MR + RCA"]
 ```
 
-## Agent Taxonomy
+## Component Roles
 
-Planner Agent: scopes the incident, suspected module, error type, time window, and retrieval signals.
+### Reasoning Nodes
+- `planner`: scopes the incident and selects retrieval signals
+- `evidence_fusion`: correlates logs, GitLab, and CI/CD evidence into a root cause
+- `patch_targeting`: narrows the edit to the exact code region
+- `patch_generation`: emits the source diff
+- `mr_creation`: writes the RCA, creates the branch, commits, and opens the MR
 
-Evidence Fusion Agent: correlates GitLab, CI/CD, and log evidence into a root-cause hypothesis and confidence score.
+### Deterministic Services
+- `log_service`: extracts runtime evidence from the configured application log
+- `gitlab_service`: fetches commits, files, branches, pipelines, and MR data
+- `cicd_service`: collects pipeline and job evidence for the pinned commit
+- `repository_context`: finds related files, imports, tests, and recent commits
+- `validation_service`: runs the template-selected validation strategy
 
-Patch Generation Agent: generates a minimal source patch for the affected file.
+## Workflow Notes
 
-MR & RCA Agent: commits the patch to the configured GitLab target repository, opens a merge request, and writes an RCA report.
+1. `planner` runs first.
+2. `log_service` and `gitlab_service` are both entered from the planner.
+3. `gitlab_service` selects the commit context used by `cicd_service`.
+4. `evidence_fusion` waits for log and CI/CD evidence.
+5. `repository_context` enriches the affected file with deterministic context only.
+6. `patch_generation` prepares the patch target.
+7. `validation_service` can send the flow back to patch generation once.
+8. `mr_creation` finalizes the remediation and posts the RCA.
 
-## Service Taxonomy
+## Recovery Path
 
-GitLab Service: retrieves project metadata, commits, source files, pipeline status, job traces, creates branches, commits, merge requests, and MR notes.
+- Quota or rate-limit failures checkpoint the incident state in SQLite.
+- The incident can be resumed through `POST /api/incidents/{incident_id}/resume`.
+- Resumed runs re-enter the LangGraph from the saved `checkpoint_state`.
 
-Log Service: reads the configured application log path and extracts runtime anomalies.
+## Provider Abstraction
 
-CI/CD Service: retrieves GitLab pipeline/job evidence when available, with a local pytest fallback for benchmark execution.
-
-Validation Service: delegates validation to a registered strategy selected by the incident template.
-
-## Configuration
-
-The platform reads repository and benchmark settings from environment variables:
-
-```text
-GITLAB_TARGET_REPO=group/project
-GITLAB_TARGET_BRANCH=main
-GITLAB_BASE_URL=https://gitlab.com
-TARGET_APP_PATH=invoice-app
-APPLICATION_LOG_PATH=invoice-app/application.log
-INCIDENT_REGISTRY_PATH=incidents.json
+```mermaid
+flowchart LR
+  Agent["Agent code"] --> Factory["ProviderFactory.get_provider()"]
+  Factory --> Provider["LLMProvider"]
+  Provider --> Gemini["GeminiProvider"]
+  Provider --> Groq["GroqProvider"]
 ```
 
-`GITLAB_PROJECT` is still accepted as a backward-compatible alias, but new configuration should use `GITLAB_TARGET_REPO`.
+Runtime selection is controlled by `MODEL_PROVIDER`. Benchmarks use Groq where possible to reduce quota pressure.
 
-## Repository-Agnostic Execution
+## Relevant Code Paths
 
-Each incident run stores its selected `target_repo` and `target_branch`. Backend services instantiate a GitLab client from that per-run state, so different investigations can target different repositories without code changes.
-
-For the default benchmark, `TARGET_APP_PATH=invoice-app` tells GitLab file operations that application files live under that subdirectory in the target repository. For repositories whose source lives at the repository root, set `TARGET_APP_PATH=` and `APPLICATION_LOG_PATH` to the desired log file.
+- `backend/app/agents/graph.py`
+- `backend/app/agents/fusion_agent.py`
+- `backend/app/agents/repository_context.py`
+- `backend/app/agents/patch_agent.py`
+- `backend/app/agents/validation_agent.py`
+- `backend/app/agents/mr_agent.py`

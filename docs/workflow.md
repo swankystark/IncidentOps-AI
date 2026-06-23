@@ -1,90 +1,90 @@
-# Incident Workflow
+# IncidentOps AI Workflow
 
-## Lifecycle
+This file describes the operator-visible flow and the backend recovery path.
 
-1. A user selects or creates an incident template from `incidents.json`.
-2. The user chooses a GitLab target repository and branch.
-3. The backend creates an incident record with target repo, branch, module, and validation strategy metadata.
-4. The configured trigger generates runtime logs when a local benchmark target is available.
-5. LangGraph executes the incident-response workflow.
-6. Evidence is collected from logs, GitLab commits, source files, and CI/CD pipelines.
-7. Evidence Fusion produces root cause, confidence, affected file, and evidence chain.
-8. Patch Generation proposes a source replacement and unified diff.
-9. Validation runs the strategy named by the incident template.
-10. MR & RCA creates a branch, commits the patch, opens a GitLab MR, and persists the RCA.
-11. Metrics are recomputed and stored in SQLite.
+## End-to-End Lifecycle
 
-## Dynamic Incident Registry
+1. Select or create an incident template from `incidents.json`.
+2. Enter the target GitLab repository, branch, application path, and log path.
+3. Click validate to confirm the repository is reachable.
+4. Trigger the incident.
+5. Watch the SSE stream and agent logs while the LangGraph workflow runs.
+6. Review the RCA, patch diff, validation result, and MR link.
+7. Approve or continue investigation from the human review gate.
 
-Incident templates live in `incidents.json`:
+## Backend Phases
 
-```json
-{
-  "id": "INC-101",
-  "module": "currency",
-  "validation": "currency_validator",
-  "target_file": "currency/converter.py",
-  "test_target": "tests/test_currency.py::test_get_rate_pre2024_uses_historical_rate"
-}
-```
+### 1. Planner
+- Scopes the incident from the title, description, and template.
+- Seeds retrieval signals for the log and GitLab branches.
 
-Adding a new scenario usually requires adding a template with:
+### 2. Retrieval
+- `log_service` extracts runtime evidence from the configured log path.
+- `gitlab_service` finds commits, file contents, and a pinned commit SHA.
+- `cicd_service` uses that pinned SHA to fetch pipeline and job evidence.
 
-```text
-id
-title
-description
-module
-validation
-target_file
-test_target
-supporting_files
-priority_signals
-```
+### 3. Evidence Fusion
+- Correlates the evidence streams into a root-cause hypothesis.
+- Chooses the most likely `affected_file`.
 
-The API also exposes JSON-backed template operations:
+### 4. Repository Context
+- Expands the file into related files, imports, tests, and recent commits.
+- Uses static analysis and GitLab data only.
 
-```text
-GET    /api/incidents/templates
-POST   /api/incidents/templates
-DELETE /api/incidents/templates/{ticket_id}
-```
+### 5. Patch Targeting
+- Narrows the edit region to the exact function or block.
+- Produces the context needed for patch generation.
+
+### 6. Patch Generation
+- Emits a minimal source diff.
+- Fails fast if the affected source cannot be read.
+
+### 7. Validation
+- Runs the template-selected validation strategy.
+- Retries patch generation once on validation failure.
+
+### 8. MR + RCA
+- Creates the remediation branch.
+- Commits the fix.
+- Opens the MR and posts the RCA as a note.
 
 ## Validation Strategy Pattern
 
-The validation core only delegates:
-
 ```text
-incident template -> validation strategy -> result
+incident_template.validation -> ValidationStrategy -> result
 ```
 
 Registered strategies:
+- `currency_validator`
+- `auth_validator`
+- `dependency_validator`
+- `generic_pytest`
 
-```text
-currency_validator
-auth_validator
-dependency_validator
-generic_pytest
-```
+## Incident Template Fields
 
-The first three are benchmark aliases over the generic pytest strategy. Future incidents can reuse `generic_pytest` by supplying a `test_target` and `supporting_files` in `incidents.json`.
+- `id`
+- `title`
+- `description`
+- `module`
+- `validation`
+- `target_file`
+- `test_target`
+- `supporting_files`
+- `priority_signals`
+- `trigger`
 
-## Metrics
+## Operator Checks
 
-Persisted metrics:
+1. Repository validate returns `ok: true`.
+2. Logs show planner, retrieval, fusion, context, patch, validation, and MR stages.
+3. `validation_passed` is true before the MR stage when possible.
+4. The incident ends with `gitlab_mr_url` and `rca_report`.
 
-```text
-Investigation Time
-Evidence Sources Correlated
-Files Analyzed
-Root Cause Confidence
-Validation Success Rate
-Patch Success Rate
-Merge Requests Created
-```
+## Recovery
 
-Dashboard summary endpoint:
+If a run is interrupted by quota or rate-limit errors:
 
-```text
-GET /api/incidents/metrics/summary
-```
+1. The incident is checkpointed in SQLite.
+2. The status becomes `WAITING_FOR_RETRY`.
+3. Resume with `POST /api/incidents/{incident_id}/resume`.
+4. The saved `checkpoint_state` is loaded and the graph continues from the last known step.
