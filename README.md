@@ -300,4 +300,4 @@ IncidentOps-AI/
 
 ## License
 
-MIT (add license file before public release if desired).
+This project is licensed under the [MIT License](LICENSE).
