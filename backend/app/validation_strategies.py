@@ -20,10 +20,12 @@ class PytestValidationStrategy(ValidationStrategy):
     name = "generic_pytest"
 
     async def validate(self, state: Dict[str, Any], gitlab_service: GitLabService) -> Dict[str, Any]:
-        template = state.get("incident_template") or {}
+        incident = state.get("incident") or {}
+        template = state.get("incident_template") or incident.get("incident_template") or {}
         affected_file = state.get("affected_file") or template.get("target_file")
-        target_content = state.get("target_content")
-        replacement_content = state.get("replacement_content")
+        patch_state = state.get("patch") or {}
+        target_content = state.get("target_content") or patch_state.get("target_content")
+        replacement_content = state.get("replacement_content") or patch_state.get("replacement_content")
         test_target = template.get("test_target")
 
         if not affected_file or not target_content or replacement_content is None or not test_target:

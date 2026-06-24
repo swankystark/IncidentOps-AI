@@ -1,4 +1,5 @@
 import asyncio
+import json as _json
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
@@ -24,6 +25,36 @@ from ..agents.graph import compiled_graph
 from ..agents.state import AgentState
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
+
+_QUOTA_MARKERS = ["429", "resource_exhausted", "quota", "rate limit", "rate_limit"]
+
+def _is_quota_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _QUOTA_MARKERS)
+
+def _json_safe_state(state: dict) -> str:
+    """Serialize AgentState to JSON, dropping non-serializable keys."""
+    safe = {}
+    for k, v in state.items():
+        try:
+            _json.dumps(v)
+            safe[k] = v
+        except (TypeError, ValueError):
+            safe[k] = str(v)
+    return _json.dumps(safe)
+
+def _save_checkpoint(incident_id: int, state: dict, failure_reason: str):
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(Incident).filter(Incident.id == incident_id).update({
+            "checkpoint_state": _json_safe_state(state),
+            "failure_reason": failure_reason,
+            "status": "WAITING_FOR_RETRY",
+        })
+        db.commit()
+    finally:
+        db.close()
 
 # Background task executor for LangGraph
 async def execute_incident_agent_flow(
@@ -97,22 +128,49 @@ async def execute_incident_agent_flow(
             "validation_retry_count": 0,
             "gitlab_mr_url": None,
             "rca_report": None,
-            "current_step": "PLANNING"
+            "current_step": "PLANNING",
+            "repo_context": None,
+            "failure_reason": None,
         }
         
         # Run graph execution
         await compiled_graph.ainvoke(initial_state)
         refresh_incident_metrics(incident_id)
     except Exception as e:
-        log_to_db(incident_id, "System", f"Workflow execution halted by critical system failure: {e}", level="ERROR")
-        # Update incident database to failed
-        from ..database import SessionLocal
-        db = SessionLocal()
-        try:
-            db.query(Incident).filter(Incident.id == incident_id).update({"status": "FAILED"})
-            db.commit()
-        finally:
-            db.close()
+        # Check if this is a quota/rate-limit error — checkpoint for resume
+        if _is_quota_error(e):
+            log_to_db(incident_id, "System", f"Quota/rate-limit error detected: {e}. State checkpointed for resume.", level="WARNING")
+            _save_checkpoint(incident_id, {}, "quota_exhausted")
+        else:
+            log_to_db(incident_id, "System", f"Workflow execution halted by critical system failure: {e}", level="ERROR")
+            from ..database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.query(Incident).filter(Incident.id == incident_id).update({"status": "FAILED"})
+                db.commit()
+            finally:
+                db.close()
+        refresh_incident_metrics(incident_id)
+
+async def _resume_from_checkpoint(incident_id: int, checkpoint_state: dict):
+    """Re-invoke the graph from a saved checkpoint state."""
+    try:
+        log_to_db(incident_id, "System", f"Resuming workflow from checkpoint (step: {checkpoint_state.get('current_step', 'UNKNOWN')})...")
+        await compiled_graph.ainvoke(checkpoint_state)
+        refresh_incident_metrics(incident_id)
+    except Exception as e:
+        if _is_quota_error(e):
+            log_to_db(incident_id, "System", f"Quota error during resume: {e}. Re-checkpointed.", level="WARNING")
+            _save_checkpoint(incident_id, checkpoint_state, "quota_exhausted")
+        else:
+            log_to_db(incident_id, "System", f"Resume failed: {e}", level="ERROR")
+            from ..database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.query(Incident).filter(Incident.id == incident_id).update({"status": "FAILED"})
+                db.commit()
+            finally:
+                db.close()
         refresh_incident_metrics(incident_id)
 
 @router.get("", response_model=List[IncidentResponse])
@@ -254,4 +312,45 @@ def approve_remediation(incident_id: int, db: Session = Depends(get_db)):
     )
     refresh_incident_metrics(incident_id)
     
+    return incident
+
+@router.post("/{incident_id}/resume", response_model=IncidentResponse)
+def resume_incident(
+    incident_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Resume a previously failed/checkpointed incident workflow.
+    Reloads the saved AgentState checkpoint from the database and
+    re-invokes the LangGraph from the last known step.
+    """
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    if incident.status not in ("WAITING_FOR_RETRY", "FAILED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Incident status is '{incident.status}'; only WAITING_FOR_RETRY or FAILED incidents can be resumed.",
+        )
+
+    if not incident.checkpoint_state:
+        raise HTTPException(
+            status_code=400,
+            detail="No checkpoint state saved for this incident. Cannot resume.",
+        )
+
+    try:
+        checkpoint = _json.loads(incident.checkpoint_state)
+    except _json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Corrupted checkpoint state.")
+
+    # Clear the failure and mark as retrying
+    incident.status = "INVESTIGATING"
+    incident.failure_reason = None
+    db.commit()
+    db.refresh(incident)
+
+    background_tasks.add_task(_resume_from_checkpoint, incident_id, checkpoint)
     return incident

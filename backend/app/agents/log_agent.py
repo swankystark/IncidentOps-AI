@@ -7,13 +7,15 @@ async def run_log_service(state: AgentState) -> dict:
     """
     Log Service: Reads the actual runtime logs from the generated application.log file.
     """
-    incident_id = state.get("incident_db_id")
-    context = state.get("shared_context") or {}
+    incident = state.get("incident", {})
+    incident_id = incident.get("incident_db_id")
+    context = state.get("retrieval", {}).get("shared_context", {})
     
     module = context.get("suspected_module", "currency")
     error_type = context.get("suspected_error_type", "logic regression")
     
-    log_path = application_log_path_for(state.get("application_log_path"))
+    app_log_path = incident.get("application_log_path")
+    log_path = application_log_path_for(app_log_path)
     log_to_db(incident_id, "Log Service", f"Scanning configured application log file '{log_path}' for error patterns...")
     
     evidence = {}
@@ -63,4 +65,6 @@ async def run_log_service(state: AgentState) -> dict:
     for err in error_lines[:2]:
         log_to_db(incident_id, "Log Service", f"Detected log error anomaly: '{err}'", level="WARNING")
         
-    return {"log_evidence": evidence}
+    return {
+        "retrieval": {"log_evidence": evidence}
+    }

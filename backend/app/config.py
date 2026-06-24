@@ -6,7 +6,9 @@ from pydantic import Field
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
-    GEMINI_API_KEY: str = Field(..., validation_alias="GEMINI_API_KEY")
+    MODEL_PROVIDER: str = Field("groq", validation_alias="MODEL_PROVIDER")
+    GEMINI_API_KEY: str = Field("", validation_alias="GEMINI_API_KEY")
+    GROQ_API_KEY: str = Field("", validation_alias="GROQ_API_KEY")
     GITLAB_PAT: str = Field(..., validation_alias="GITLAB_PAT")
     GITLAB_TARGET_REPO: str = Field("", validation_alias="GITLAB_TARGET_REPO")
     GITLAB_PROJECT: str = Field("", validation_alias="GITLAB_PROJECT")
@@ -21,6 +23,9 @@ class Settings(BaseSettings):
     
     # Enable simulation mode for local pytest execution and logs
     DEMO_MODE: bool = Field(True, validation_alias="DEMO_MODE")
+    
+    # Skip real MR creation in benchmarks
+    SKIP_MR_CREATION: bool = Field(False, validation_alias="SKIP_MR_CREATION")
 
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),

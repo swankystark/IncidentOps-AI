@@ -18,10 +18,11 @@ class GitLabService:
 
     @classmethod
     def from_state(cls, state: Dict[str, Any]) -> "GitLabService":
+        incident = state.get("incident", {})
         return cls(
-            project_path=state.get("target_repo") or get_target_repo(),
-            target_branch=state.get("target_branch") or settings.GITLAB_TARGET_BRANCH,
-            target_app_path=state.get("target_app_path") if state.get("target_app_path") is not None else settings.TARGET_APP_PATH,
+            project_path=incident.get("target_repo") or get_target_repo(),
+            target_branch=incident.get("target_branch") or settings.GITLAB_TARGET_BRANCH,
+            target_app_path=incident.get("target_app_path") if incident.get("target_app_path") is not None else settings.TARGET_APP_PATH,
         )
 
     def _resolve_path(self, file_path: str) -> str:
@@ -102,6 +103,42 @@ class GitLabService:
         async with httpx.AsyncClient() as client:
             url = f"{self.base_url}/projects/{self.project_encoded}/repository/commits"
             params = {"search": query}
+            try:
+                response = await client.get(url, headers=self.headers, params=params)
+                if response.status_code == 200:
+                    return response.json()
+            except httpx.HTTPError:
+                return []
+            return []
+
+    async def get_file_commits(self, file_path: str, ref: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get commits that touched a specific file."""
+        if settings.DEMO_MODE:
+            return []
+
+        ref = ref or self.target_branch
+        resolved_path = self._resolve_path(file_path)
+        async with httpx.AsyncClient() as client:
+            url = f"{self.base_url}/projects/{self.project_encoded}/repository/commits"
+            params = {"path": resolved_path, "ref_name": ref}
+            try:
+                response = await client.get(url, headers=self.headers, params=params)
+                if response.status_code == 200:
+                    return response.json()
+            except httpx.HTTPError:
+                return []
+            return []
+
+    async def get_repository_tree(self, path: str = "", ref: Optional[str] = None, recursive: bool = False) -> List[Dict[str, Any]]:
+        """Fetch repository tree for a specific path."""
+        if settings.DEMO_MODE:
+            return []
+
+        ref = ref or self.target_branch
+        resolved_path = self._resolve_path(path)
+        async with httpx.AsyncClient() as client:
+            url = f"{self.base_url}/projects/{self.project_encoded}/repository/tree"
+            params = {"path": resolved_path, "ref": ref, "recursive": "true" if recursive else "false", "per_page": 100}
             try:
                 response = await client.get(url, headers=self.headers, params=params)
                 if response.status_code == 200:
@@ -274,6 +311,16 @@ def test_historical_currency_conversion():
             response = await client.post(url, headers=self.headers, json=payload)
             return response.status_code in [200, 201]
 
+    async def branch_exists(self, branch_name: str) -> bool:
+        if settings.DEMO_MODE:
+            return True
+
+        try:
+            await self.get_branch(branch_name)
+            return True
+        except httpx.HTTPError:
+            return False
+
     async def commit_changes(self, branch_name: str, file_path: str, content: str, commit_message: str) -> bool:
         """Commit changes to a file on a branch. Works in both live and mock mode."""
         if settings.DEMO_MODE:
@@ -384,17 +431,36 @@ def test_historical_currency_conversion():
                 "title": title,
                 "description": description
             }
-            response = await client.post(url, headers=self.headers, json=payload)
-            if response.status_code in [200, 201]:
+            try:
+                response = await client.post(url, headers=self.headers, json=payload)
+            except httpx.HTTPError:
+                response = None
+            if response is not None and response.status_code in [200, 201]:
                 return response.json().get("web_url")
-            if response.status_code == 409:
-                existing = await client.get(
-                    url,
-                    headers=self.headers,
-                    params={"source_branch": source_branch, "target_branch": target_branch, "state": "opened", "per_page": 1},
-                )
-                if existing.status_code == 200 and existing.json():
-                    return existing.json()[0].get("web_url")
+            existing = await self.find_open_merge_request(
+                source_branch=source_branch,
+                target_branch=target_branch,
+            )
+            return existing
+
+    async def find_open_merge_request(self, source_branch: str, target_branch: str) -> Optional[str]:
+        if settings.DEMO_MODE:
+            return f"https://gitlab.com/{self.project_path}/-/merge_requests/42"
+
+        async with httpx.AsyncClient() as client:
+            url = f"{self.base_url}/projects/{self.project_encoded}/merge_requests"
+            response = await client.get(
+                url,
+                headers=self.headers,
+                params={
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "state": "opened",
+                    "per_page": 1,
+                },
+            )
+            if response.status_code == 200 and response.json():
+                return response.json()[0].get("web_url")
             return None
 
 gitlab_service = GitLabService()

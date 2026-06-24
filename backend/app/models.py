@@ -31,6 +31,8 @@ class Incident(Base):
     rca_report = Column(Text, nullable=True)
     confidence_score = Column(Integer, nullable=True)
     patch_diff = Column(Text, nullable=True)
+    checkpoint_state = Column(Text, nullable=True)   # JSON-serialized AgentState for resume
+    failure_reason = Column(String, nullable=True)    # quota_exhausted, rate_limited, model_unavailable
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

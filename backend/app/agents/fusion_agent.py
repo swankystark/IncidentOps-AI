@@ -1,4 +1,4 @@
-from ..services.gemini import gemini_service, EvidenceFusionOutput
+from ..services.gemini import llm_service, EvidenceFusionOutput
 from ..database import log_to_db
 from ..config import settings
 from .state import AgentState
@@ -8,13 +8,20 @@ async def run_fusion_agent(state: AgentState) -> dict:
     Evidence Fusion Agent: Correlates git, CI/CD, and log evidence,
     determines the root cause, and computes the diagnosis confidence score.
     """
-    incident_id = state.get("incident_db_id")
-    ticket_id = state.get("ticket_id")
-    pinned_commit_sha = state.get("pinned_commit_sha") or "unknown"
+    incident = state.get("incident", {})
+    incident_id = incident.get("incident_db_id")
+    ticket_id = incident.get("ticket_id")
     
-    gitlab_ev = state.get("gitlab_evidence") or {}
-    cicd_ev = state.get("cicd_evidence") or {}
-    log_ev = state.get("log_evidence") or {}
+    retrieval = state.get("retrieval", {})
+    fusion = state.get("fusion", {})
+    pinned_commit_sha = fusion.get("pinned_commit_sha") or "unknown"
+    
+    gitlab_ev = retrieval.get("gitlab_evidence", {})
+    cicd_ev = retrieval.get("cicd_evidence", {})
+    log_ev = retrieval.get("log_evidence", {})
+    
+    title = incident.get("title")
+    description = incident.get("description")
     
     log_to_db(incident_id, "Evidence Fusion Agent", "Fusing evidence from GitLab, CI/CD, and Log streams...")
     
@@ -25,8 +32,8 @@ async def run_fusion_agent(state: AgentState) -> dict:
     
     --- Incident Ticket ---
     Ticket ID: {ticket_id}
-    Title: {state.get('title')}
-    Description: {state.get('description')}
+    Title: {title}
+    Description: {description}
     
     --- IMPORTANT: Authoritative Commit Reference ---
     The GitLab Service has pinpointed the following as the key commit for this incident.
@@ -54,7 +61,12 @@ async def run_fusion_agent(state: AgentState) -> dict:
     """
     
     try:
-        fusion_output = gemini_service.generate_structured(prompt, EvidenceFusionOutput)
+        fusion_output = llm_service.generate_structured(prompt, EvidenceFusionOutput)
+        incident_template = incident.get("incident_template", {})
+        if incident_template.get("validation") == "dependency_validator":
+            template_target = incident_template.get("target_file")
+            if template_target and fusion_output.affected_file != template_target:
+                fusion_output = fusion_output.model_copy(update={"affected_file": template_target})
         
         # Log findings
         log_to_db(
@@ -89,11 +101,13 @@ async def run_fusion_agent(state: AgentState) -> dict:
             # In a full flow we would loop back; here we flag it and let the graph handle or continue.
             
         return {
-            "root_cause": fusion_output.root_cause,
-            "confidence_score": int(fusion_output.confidence * 100),
-            "affected_file": fusion_output.affected_file,
-            "evidence_chain": fusion_output.evidence_chain,
-            "current_step": "PATCHING"
+            "fusion": {
+                "root_cause": fusion_output.root_cause,
+                "confidence_score": int(fusion_output.confidence * 100),
+                "affected_file": fusion_output.affected_file,
+                "evidence_chain": fusion_output.evidence_chain
+            },
+            "workflow": {"current_step": "PATCHING"}
         }
         
     except Exception as e:
@@ -107,8 +121,8 @@ async def run_fusion_agent(state: AgentState) -> dict:
                 db.commit()
             finally:
                 db.close()
-            return {"current_step": "FAILED"}
-        template = state.get("incident_template") or {}
+            return {"workflow": {"current_step": "FAILED"}}
+        template = incident.get("incident_template", {})
         confidence = 80 if template else 50
         root_cause = template.get("expected_root_cause") or "Failed to automatically correlate root cause."
         affected_file = template.get("target_file") or "currency/converter.py"
@@ -124,9 +138,11 @@ async def run_fusion_agent(state: AgentState) -> dict:
         finally:
             db.close()
         return {
-            "root_cause": root_cause,
-            "confidence_score": confidence,
-            "affected_file": affected_file,
-            "evidence_chain": ["Used incident template fallback after model correlation failed."],
-            "current_step": "PATCHING"
+            "fusion": {
+                "root_cause": root_cause,
+                "confidence_score": confidence,
+                "affected_file": affected_file,
+                "evidence_chain": ["Used incident template fallback after model correlation failed."]
+            },
+            "workflow": {"current_step": "PATCHING"}
         }

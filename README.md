@@ -15,7 +15,22 @@ On-call engineers spend critical minutes manually correlating logs, pipeline fai
 
 ## Architecture
 
-![Architecture](docs/assets/architecture.png)
+```mermaid
+flowchart LR
+  UI["Next.js Dashboard"] --> API["FastAPI Backend"]
+  API --> Registry["incidents.json"]
+  API --> DB["SQLite incidents, logs, metrics"]
+  API --> Graph["LangGraph workflow"]
+  Graph --> Planner["Planner"]
+  Graph --> Log["Log Service"]
+  Graph --> GitLab["GitLab Service"]
+  Graph --> CICD["CI/CD Service"]
+  Graph --> Fusion["Evidence Fusion"]
+  Graph --> RepoContext["Repository Context"]
+  Graph --> PatchGen["Patch Generation"]
+  Graph --> Validation["Validation Service"]
+  Graph --> MR["MR + RCA"]
+```
 
 IncidentOps AI is a **Next.js dashboard** connected to a **FastAPI + LangGraph backend** with **SQLite** persistence.
 
@@ -23,38 +38,68 @@ IncidentOps AI is a **Next.js dashboard** connected to a **FastAPI + LangGraph b
 |-------|------------|------|
 | Frontend | Next.js, React, Tailwind | Incident dashboard, live SSE streaming, RCA panel |
 | API | FastAPI | REST endpoints, config, incident lifecycle |
-| Orchestration | LangGraph | Multi-agent workflow with dedicated evidence retrieval services |
-| Reasoning | Google Gemini | Structured evidence fusion, patch generation, RCA authoring |
+| Orchestration | LangGraph | 9-node workflow: planner, log retrieval, GitLab retrieval, CI/CD, evidence fusion, repository context, patch generation, validation, MR |
+| Reasoning | Gemini + Groq via provider abstraction | Structured evidence fusion, patch generation, RCA authoring |
 | Integrations | GitLab API | Commits, files, pipelines, branches, merge requests |
 | Storage | SQLite | Incidents, agent logs, platform metrics |
 
 ### Agent Taxonomy
 
 - **Planner Agent** — scopes module, error type, and retrieval signals
-- **GitLab / CI/CD / Log Services** — evidence collection from commits, pipelines, and logs
+- **Log Service** — extracts runtime anomalies from the configured log path
+- **GitLab Service** — retrieves commits, files, branches, and pinned SHA evidence
+- **CI/CD Service** — loads pipeline and job evidence for the pinned commit
 - **Evidence Fusion Agent** — correlates signals into root cause + confidence
+- **Repository Context Service** — discovers related files, imports, tests, and recent commits
+- **Patch Targeting** — narrows the edit to the exact code region (embedded in patch generation)
 - **Patch Generation Agent** — produces a minimal unified diff
-- **Validation Service** — runs template-selected pytest strategy
+- **Validation Service** — runs template-selected pytest strategy with one retry
 - **MR & RCA Agent** — commits patch, opens MR, writes RCA markdown
 
-See [docs/architecture.md](docs/architecture.md) for the full system diagram.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system diagram, [docs/DECISIONS.md](docs/DECISIONS.md) for design rationale, and [docs/RECOVERY.md](docs/RECOVERY.md) for the resume path.
 
 ---
 
 ## Workflow
 
-![Workflow](docs/assets/workflow.png)
+```mermaid
+flowchart TD
+  Planner["Incident Analysis / Planner"]
+  Logs["Log Service"]
+  GitLab["GitLab Service"]
+  CICD["CI/CD Service"]
+  Fusion["Evidence Fusion"]
+  RepoContext["Repository Context"]
+  PatchTarget["Patch Targeting"]
+  PatchGen["Patch Generation"]
+  Validation["Validation Service"]
+  MR["MR + RCA"]
+
+  Planner --> Logs
+  Planner --> GitLab
+  GitLab --> CICD
+  Logs --> Fusion
+  CICD --> Fusion
+  Fusion --> RepoContext
+  RepoContext --> PatchTarget
+  PatchTarget --> PatchGen
+  PatchGen --> Validation
+  Validation --> MR
+  Validation -.->|1 retry on failure| PatchGen
+```
 
 1. Select an incident template from `incidents.json`
 2. Configure target GitLab repository, branch, app path, and log path
 3. **Validate Repository** — verify project, branch, and GitLab access before running
-4. Trigger investigation — LangGraph executes the agent pipeline
+4. Trigger investigation — LangGraph executes planner -> log retrieval -> GitLab retrieval -> CI/CD -> fusion -> repository context -> patch generation -> validation -> MR
 5. Watch live agent logs via Server-Sent Events
 6. Review RCA panel: root cause, evidence, affected files, confidence
 7. Inspect generated patch diff
 8. Approve merge request at the human review gate
 
-See [docs/workflow.md](docs/workflow.md) and [docs/demo_walkthrough.md](docs/demo_walkthrough.md).
+If a run is interrupted by quota or rate limits, the backend checkpoints the incident and exposes a `/resume` path for recovery.
+
+See [docs/WORKFLOW.md](docs/WORKFLOW.md) and [docs/demo_walkthrough.md](docs/demo_walkthrough.md).
 
 ---
 
@@ -105,12 +150,15 @@ cp .env.example .env
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GEMINI_API_KEY` | Yes | Google Gemini API key |
+| `GROQ_API_KEY` | No | Groq API key (used when `MODEL_PROVIDER=groq`) |
 | `GITLAB_PAT` | Yes | GitLab personal access token |
 | `GITLAB_TARGET_REPO` | No | Default target repo (overridable in UI) |
 | `GITLAB_TARGET_BRANCH` | No | Default branch (default: `main`) |
 | `TARGET_APP_PATH` | No | App subdirectory in target repo |
 | `APPLICATION_LOG_PATH` | No | Runtime log path for log agent |
+| `MODEL_PROVIDER` | No | `gemini` or `groq` (default: `groq`) |
 | `DEMO_MODE` | No | Enable local pytest/log fallbacks (default: `true`) |
+| `SKIP_MR_CREATION` | No | Skip real MR creation in benchmarks (default: `false`) |
 
 ### Frontend (`frontend/.env.local`)
 
@@ -131,7 +179,7 @@ cp frontend/.env.example frontend/.env.local
 - Python 3.11+
 - Node.js 18+
 - GitLab PAT with API access
-- Gemini API key
+- Gemini or Groq API key
 
 ### 1. Backend
 
@@ -161,7 +209,7 @@ Open **http://localhost:3000**
 
 ### 3. Quick demo
 
-1. Paste your Gemini API key in the header (or set `GEMINI_API_KEY` in `.env`)
+1. Paste your Gemini or Groq API key in the header (or set it in `.env`)
 2. Click **Apply Demo Preset** for the benchmark GitLab repository
 3. Click **Validate Repository** — expect `PASS`
 4. Trigger **INC-101**, **INC-102**, or **INC-103**
@@ -171,7 +219,7 @@ Open **http://localhost:3000**
 
 ```bash
 cp .env.example .env
-# Fill in GEMINI_API_KEY and GITLAB_PAT
+# Fill in GEMINI_API_KEY or GROQ_API_KEY and GITLAB_PAT
 docker compose up --build
 ```
 
@@ -202,11 +250,12 @@ Evaluation harness: `tools/benchmark/run_benchmark.py`
 
 | Scenario | Success Rate | Mean Confidence | Mean Duration |
 |----------|-------------|-----------------|---------------|
-| INC-101 (currency regression) | 100% | 98% | ~50s |
-| INC-102 (auth null pointer) | 66.7% | 97% | ~42s |
-| **Overall (6 runs)** | **83.3%** | **97.5%** | **~46s** |
+| INC-101 (currency regression) | 100% | 98% | ~24s |
+| INC-102 (auth null pointer) | 80% | 98% | ~26s |
+| INC-103 (dependency issue) | 70% | 98% | ~45s |
+| **Overall (30 runs)** | **83.3%** | **98%** | **~31s** |
 
-Full report: [tools/benchmark/benchmark_report.md](tools/benchmark/benchmark_report.md)
+Full report: [tools/benchmark/final_benchmark_report.md](tools/benchmark/final_benchmark_report.md)
 
 ---
 

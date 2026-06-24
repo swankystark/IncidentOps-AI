@@ -1,4 +1,4 @@
-from ..services.gemini import gemini_service, PlannerOutput
+from ..services.gemini import llm_service, PlannerOutput
 from ..database import log_to_db
 from .state import AgentState
 
@@ -7,11 +7,12 @@ async def run_planner(state: AgentState) -> dict:
     Planner Agent: Analyzes the incident ticket, determines suspected modules,
     and initializes the Shared Investigation Context.
     """
-    incident_id = state.get("incident_db_id")
-    ticket_id = state.get("ticket_id")
-    title = state.get("title")
-    description = state.get("description")
-    template = state.get("incident_template") or {}
+    incident = state.get("incident", {})
+    incident_id = incident.get("incident_db_id")
+    ticket_id = incident.get("ticket_id")
+    title = incident.get("title")
+    description = incident.get("description")
+    template = incident.get("incident_template") or {}
     
     log_to_db(incident_id, "Planner Agent", f"Initializing planning phase for ticket {ticket_id}: '{title}'")
     
@@ -34,7 +35,7 @@ async def run_planner(state: AgentState) -> dict:
     
     try:
         # Generate structured response from Gemini
-        planner_output = gemini_service.generate_structured(prompt, PlannerOutput)
+        planner_output = llm_service.generate_structured(prompt, PlannerOutput)
         
         context_dict = {
             "suspected_module": template.get("module") or planner_output.suspected_module,
@@ -50,8 +51,8 @@ async def run_planner(state: AgentState) -> dict:
         )
         
         return {
-            "shared_context": context_dict,
-            "current_step": "RETRIEVING"
+            "retrieval": {"shared_context": context_dict},
+            "workflow": {"current_step": "RETRIEVING"}
         }
     except Exception as e:
         log_to_db(incident_id, "Planner Agent", f"Error during planning: {e}", level="ERROR")
@@ -63,6 +64,6 @@ async def run_planner(state: AgentState) -> dict:
             "priority_signals": template.get("priority_signals", ["currency", "conversion", "reports", "exchange rate"])
         }
         return {
-            "shared_context": fallback_context,
-            "current_step": "RETRIEVING"
+            "retrieval": {"shared_context": fallback_context},
+            "workflow": {"current_step": "RETRIEVING"}
         }

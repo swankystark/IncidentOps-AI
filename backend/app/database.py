@@ -1,7 +1,32 @@
 from sqlalchemy import create_engine
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+import re
+from collections.abc import Sequence
+from typing import Protocol
 from .config import settings
+
+
+class MetricLog(Protocol):
+    agent_name: str
+    message: str
+
+
+def _count_files_analyzed(logs: Sequence[MetricLog]) -> int:
+    paths = {
+        log.message.split("'")[1]
+        for log in logs
+        if log.agent_name in {"GitLab Service", "Validation Service", "Patch Generation Agent"}
+        and "'" in log.message
+        and "file" in log.message.lower()
+    }
+    explicit_counts = [
+        int(match.group(1))
+        for log in logs
+        if log.agent_name == "Repository Context"
+        if (match := re.search(r"Files analyzed: (\d+)", log.message))
+    ]
+    return max([len(paths), *explicit_counts], default=0)
 
 # SQLite needs check_same_thread=False for multi-threaded/async access in FastAPI
 engine = create_engine(
@@ -31,6 +56,8 @@ def ensure_sqlite_schema():
         "selected_pipeline_status": "VARCHAR",
         "selected_pipeline_web_url": "VARCHAR",
         "selected_pipeline_source": "VARCHAR",
+        "checkpoint_state": "TEXT",
+        "failure_reason": "VARCHAR",
     }
     inspector = inspect(engine)
     if "incidents" not in inspector.get_table_names():
@@ -92,11 +119,7 @@ def refresh_incident_metrics(incident_id: int):
 
         evidence_agents = {"GitLab Service", "CI/CD Service", "Log Service"}
         sources = len({log.agent_name for log in logs if log.agent_name in evidence_agents})
-        files_analyzed = len({
-            log.message.split("'")[1]
-            for log in logs
-            if log.agent_name in {"GitLab Service", "Validation Service"} and "'" in log.message and "file" in log.message.lower()
-        })
+        files_analyzed = _count_files_analyzed(logs)
         patch_success = bool(incident.patch_diff)
         validation_success = any(log.agent_name == "Validation Service" and "passed" in log.message.lower() for log in logs)
         mr_created = bool(incident.gitlab_mr_url)

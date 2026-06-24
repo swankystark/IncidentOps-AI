@@ -1,13 +1,16 @@
-import json
-import time
-from typing import List, Optional, Type
+"""
+Backward-compatible module: exports Pydantic schemas and a provider-based service singleton.
+
+All agent code should import schemas from here, and use `llm_service` instead of `gemini_service`.
+The name `gemini_service` is kept as an alias for backward compatibility during migration.
+"""
+from typing import List
 from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
-from ..config import settings
+from .llm_provider import create_provider, LLMProvider
 
 # ----------------------------------------------------
-# Gemini Pydantic Schemas for Structured JSON Outputs
+# Pydantic Schemas for Structured JSON Outputs
+# (These are provider-agnostic)
 # ----------------------------------------------------
 class PlannerOutput(BaseModel):
     suspected_module: str = Field(description="The suspected code module or directory, e.g. currency, auth, billing, reports")
@@ -25,9 +28,7 @@ class EvidenceFusionOutput(BaseModel):
 
 class PatchOutput(BaseModel):
     explanation: str = Field(description="Brief explanation of the proposed patch and why it resolves the root cause")
-    file_path: str = Field(description="Relative file path of the code to patch")
-    target_content: str = Field(description="The exact contiguous block of code to be replaced. Must match code in the repository exactly including indentation and whitespace.")
-    replacement_content: str = Field(description="The replacement code block to swap in for target_content.")
+    replacement_content: str = Field(description="The replacement code block to swap in for the provided target code. Must be valid syntactically and completely replace the given block.")
 
 class RCAOutput(BaseModel):
     title: str = Field(description="Title of the Root Cause Analysis report")
@@ -38,70 +39,9 @@ class RCAOutput(BaseModel):
 
 
 # ----------------------------------------------------
-# Gemini API Service
+# Provider-based singleton
 # ----------------------------------------------------
-class GeminiService:
-    def __init__(self):
-        # Initialize the official Google GenAI Client
-        self.api_key = settings.GEMINI_API_KEY
-        self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.5-flash"
+llm_service: LLMProvider = create_provider()
 
-    def set_api_key(self, api_key: str) -> None:
-        """Replace the Gemini API key for the current backend process."""
-        self.api_key = api_key
-        self.client = genai.Client(api_key=self.api_key)
-
-    def has_api_key(self) -> bool:
-        return bool(self.api_key)
-
-    def masked_api_key(self) -> str:
-        if not self.api_key:
-            return ""
-        if len(self.api_key) <= 8:
-            return "****"
-        return f"{self.api_key[:4]}...{self.api_key[-4:]}"
-
-    def generate_structured(self, prompt: str, response_schema: Type[BaseModel]) -> BaseModel:
-        """
-        Sends a prompt to Gemini and enforces a structured JSON response matching the provided Pydantic schema class.
-        """
-        last_error = None
-        for attempt in range(3):
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=response_schema,
-                        temperature=0.1
-                    )
-                )
-                data = json.loads(response.text)
-                return response_schema(**data)
-            except Exception as e:
-                last_error = e
-                if "429" in str(e):
-                    raise e
-                if "503" in str(e) and attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                print(f"Error in Gemini structured generation: {e}")
-                raise e
-        raise last_error
-
-    def generate_text(self, prompt: str, temperature: float = 0.2) -> str:
-        """
-        Generates standard text responses (useful for intermediate analysis or freeform summaries).
-        """
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature
-            )
-        )
-        return response.text
-
-gemini_service = GeminiService()
+# Backward-compatible alias
+gemini_service = llm_service

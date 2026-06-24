@@ -3,33 +3,47 @@ from pydantic import BaseModel
 
 from ..models import RepositoryValidationRequest, RepositoryValidationResponse
 from ..services.gitlab import GitLabService
-from ..services.gemini import gemini_service
+from ..services.gemini import llm_service
 
 router = APIRouter(prefix="/config", tags=["config"])
 
 
-class GeminiKeyUpdate(BaseModel):
+class LLMKeyUpdate(BaseModel):
     api_key: str
 
 
+@router.get("/llm")
+def get_llm_config():
+    return {
+        "provider": llm_service.provider_name,
+        "configured": llm_service.has_api_key(),
+        "masked_api_key": llm_service.masked_api_key(),
+    }
+
+
+# Backward-compatible alias
 @router.get("/gemini")
 def get_gemini_config():
-    return {
-        "configured": gemini_service.has_api_key(),
-        "masked_api_key": gemini_service.masked_api_key(),
-    }
+    return get_llm_config()
 
 
-@router.post("/gemini")
-def update_gemini_key(payload: GeminiKeyUpdate):
+@router.post("/llm")
+def update_llm_key(payload: LLMKeyUpdate):
     api_key = payload.api_key.strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="Gemini API key is required")
-    gemini_service.set_api_key(api_key)
+        raise HTTPException(status_code=400, detail="API key is required")
+    llm_service.set_api_key(api_key)
     return {
+        "provider": llm_service.provider_name,
         "configured": True,
-        "masked_api_key": gemini_service.masked_api_key(),
+        "masked_api_key": llm_service.masked_api_key(),
     }
+
+
+# Backward-compatible alias
+@router.post("/gemini")
+def update_gemini_key(payload: LLMKeyUpdate):
+    return update_llm_key(payload)
 
 
 @router.post("/repository/validate", response_model=RepositoryValidationResponse)

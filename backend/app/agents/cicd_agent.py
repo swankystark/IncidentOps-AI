@@ -13,9 +13,10 @@ async def run_cicd_service(state: AgentState) -> dict:
     If no jobs are run on GitLab (e.g. no runners), falls back to executing pytest
     locally on the actual code to retrieve real log trace outputs.
     """
-    incident_id = state.get("incident_db_id")
-    context = state.get("shared_context") or {}
-    template = state.get("incident_template") or {}
+    incident = state.get("incident", {})
+    incident_id = incident.get("incident_db_id")
+    context = state.get("retrieval", {}).get("shared_context", {})
+    template = incident.get("incident_template", {})
     module = context.get("suspected_module") or template.get("module") or "currency"
     gitlab_client = GitLabService.from_state(state)
 
@@ -23,9 +24,9 @@ async def run_cicd_service(state: AgentState) -> dict:
 
     evidence = {}
     try:
-        gitlab_ev = state.get("gitlab_evidence") or {}
+        gitlab_ev = state.get("retrieval", {}).get("gitlab_evidence", {})
         commits = gitlab_ev.get("commits", [])
-        commit_sha = state.get("pinned_commit_sha") or (commits[0].get("sha") if commits else None)
+        commit_sha = state.get("fusion", {}).get("pinned_commit_sha") or (commits[0].get("sha") if commits else None)
 
         pipeline = await gitlab_client.get_pipeline_status(preferred_sha=commit_sha)
         pipeline_id = pipeline.get("id")
@@ -123,7 +124,8 @@ async def run_cicd_service(state: AgentState) -> dict:
                 pytest_path = "pytest"
 
             # Execute pytest locally on target module tests
-            target_path = target_app_path_for(state.get("target_app_path"))
+            app_path = incident.get("target_app_path")
+            target_path = target_app_path_for(app_path)
             test_file_path = str(target_path / template.get("test_target", f"tests/test_{module}.py").split("::")[0])
             
             env = os.environ.copy()
@@ -158,7 +160,7 @@ async def run_cicd_service(state: AgentState) -> dict:
                 "status": "failed",
                 "ref": "main",
                 "sha": commit_sha,
-                "web_url": f"https://gitlab.com/{state.get('target_repo') or gitlab_client.project_path}/-/pipelines",
+                "web_url": f"https://gitlab.com/{incident.get('target_repo') or gitlab_client.project_path}/-/pipelines",
                 "source": "local_pytest_run",
                 "selection_source": pipeline_source
             }
@@ -175,8 +177,12 @@ async def run_cicd_service(state: AgentState) -> dict:
             ]
             log_to_db(incident_id, "CI/CD Service", f"Captured real local pytest failure log: '{failure_message}'")
 
-        return {"cicd_evidence": evidence}
+        return {
+            "retrieval": {"cicd_evidence": evidence}
+        }
 
     except Exception as e:
         log_to_db(incident_id, "CI/CD Service", f"Error collecting CI/CD status: {e}", level="ERROR")
-        return {"cicd_evidence": {"error": str(e), "test_failures": []}}
+        return {
+            "retrieval": {"cicd_evidence": {"error": str(e), "test_failures": []}}
+        }

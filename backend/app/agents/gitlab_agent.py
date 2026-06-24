@@ -7,9 +7,10 @@ async def run_gitlab_service(state: AgentState) -> dict:
     GitLab Service: Searches commits, pulls history, and inspects files
     related to the suspected module in the shared context.
     """
-    incident_id = state.get("incident_db_id")
-    context = state.get("shared_context") or {}
-    template = state.get("incident_template") or {}
+    incident = state.get("incident", {})
+    incident_id = incident.get("incident_db_id")
+    context = state.get("retrieval", {}).get("shared_context", {})
+    template = incident.get("incident_template", {})
     gitlab_service = GitLabService.from_state(state)
     
     module = context.get("suspected_module") or template.get("module") or "currency"
@@ -63,8 +64,14 @@ async def run_gitlab_service(state: AgentState) -> dict:
             log_to_db(incident_id, "GitLab Service", f"Warning: Could not fetch source code for {target_file}", level="WARNING")
             evidence["source_files"] = {}
             
-        return {"gitlab_evidence": evidence, "pinned_commit_sha": pinned_sha}
+        return {
+            "retrieval": {"gitlab_evidence": evidence},
+            "fusion": {"pinned_commit_sha": pinned_sha}
+        }
         
     except Exception as e:
         log_to_db(incident_id, "GitLab Service", f"Error collecting git evidence: {e}", level="ERROR")
-        return {"gitlab_evidence": {"error": str(e)}, "pinned_commit_sha": None}
+        return {
+            "retrieval": {"gitlab_evidence": {"error": str(e)}},
+            "fusion": {"pinned_commit_sha": None}
+        }
